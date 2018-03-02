@@ -603,7 +603,7 @@ def test(target,path):
                 activation=Iden,
                 sqr_norm_lim=9,
                 batch_size=batch_size,
-                dropout_rate=0.5)
+                dropout_rate=0.0)
     
 '''main training function
 '''
@@ -695,9 +695,10 @@ def main(args):
                 for hidden_dim in hidden_dims:
                         for epsilon in epsilons:
                                 for epoch in epochs:
-                                        params = train(target,path,hidden_units=hidden_dim,both=False,\
+                                        params = train(target,path,hidden_dim,both=False,\
                                         drop_out=drop_out,epsilon=epsilon,epoch=epoch)
-                                        test(params,target,path,hidden_units=hidden_dim,non_static=True,both=False)
+                                        test(params,target,path,
+                                             hidden_dim,non_static=True,both=False)
 
 
     log_file.close()
