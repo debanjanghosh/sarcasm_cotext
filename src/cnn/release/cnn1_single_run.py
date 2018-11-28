@@ -29,8 +29,7 @@ from conv_net_classes import LeNetConvPoolLayer
 from conv_net_classes import MLPDropout
 from datetime import datetime
 from sklearn.metrics import precision_recall_fscore_support as score
-from sklearn.metrics import precision_recall_fscore_support as score
-
+from mercurial.wireproto import batch
 
 
 warnings.filterwarnings("ignore")   
@@ -66,11 +65,9 @@ main function to build a training/test model for the 2-CNN
 
 def build_model(U,
                 img_h1,
-                img_h2,
-                img_w=100, 
+                img_w=110, 
                 x1_filter_hs=[1,2,3],
-                x2_filter_hs=[1,2,3],
-                hidden_units=[100,2], 
+                hidden_units=[110,2], 
                 dropout_rate=0.5,
                 batch_size=50, 
                 conv_non_linear="relu",
@@ -78,14 +75,11 @@ def build_model(U,
                 sqr_norm_lim=9,
                 non_static=True):
 
-  
     rng = np.random.RandomState(3435)
     filter_w = img_w
     feature_maps = hidden_units[0]
     x1_filter_shapes = []
-    x2_filter_shapes = []
     pool_x1_sizes = []
-    pool_x2_sizes = []
     
     ''' for different filters set the pools for both CNN'''
     ''' (note - this code creates the structures in a way to be handled easily
@@ -95,11 +89,7 @@ def build_model(U,
         x1_filter_shapes.append((feature_maps, 1, filter_h, filter_w))
         pool_x1_sizes.append((img_h1-filter_h+1, img_w-filter_w+1))
     
-    for filter_h in x2_filter_hs:
-        x2_filter_shapes.append((feature_maps, 1, filter_h, filter_w))
-        pool_x2_sizes.append((img_h2-filter_h+1, img_w-filter_w+1))
-    
-    parameters = [("image x1 shape",img_h1,img_w), ("image x2 shape",img_h2,img_w), ("x1 filter shape",x1_filter_shapes), ("x2 filter shape",x2_filter_shapes), ("pool x1 size", pool_x1_sizes), ("pool x2 size", pool_x2_sizes), ("hidden_units",hidden_units),
+    parameters = [("image x1 shape",img_h1,img_w), ("x1 filter shape",x1_filter_shapes), ("pool x1 size", pool_x1_sizes), ("hidden_units",hidden_units),
                   ("dropout", dropout_rate), ("batch_size",batch_size),("non_static", non_static),
                     ("conv_non_linear", conv_non_linear), 
                     ("sqr_norm_lim",sqr_norm_lim)]
@@ -112,7 +102,6 @@ def build_model(U,
     
     #define model architecture
     x1 = T.imatrix('x1')
-    x2 = T.imatrix('x2')
     y = T.ivector('y')
     
     Words = theano.shared(value = U, name = "Words")
@@ -120,14 +109,11 @@ def build_model(U,
     '''for the first layer input'''
     
     layer0_x1_input = Words[x1.flatten()].reshape((x1.shape[0],1,x1.shape[1],Words.shape[1]))
-    layer0_x2_input = Words[x2.flatten()].reshape((x2.shape[0],1,x2.shape[1],Words.shape[1]))
     
     conv_layers = []
     conv_layers1 = []
-    conv_layers2 = []
 
     x1_layer1_inputs = []
-    x2_layer1_inputs = []
     
     '''creating two LeNetConvPoolLayers - for both CNN'''
     
@@ -138,18 +124,9 @@ def build_model(U,
         conv_layers1.append(x1_conv_layer)
         x1_layer1_inputs.append(x1_layer1_input)
     
-    for i in xrange(len(x2_filter_hs)):
-        x2_conv_layer = LeNetConvPoolLayer(rng, input=layer0_x2_input,image_shape=(batch_size, 1, img_h2, img_w),
-                                filter_shape=x2_filter_shapes[i], poolsize=pool_x2_sizes[i], non_linear=conv_non_linear)
-        x2_layer1_input = x2_conv_layer.output.flatten(2)
-        conv_layers2.append(x2_conv_layer)
-        x2_layer1_inputs.append(x2_layer1_input)
     
-    ''' concatenating the output of the 2 CNN for softmax classification'''
-    
-    x2_layer1_inputs += x1_layer1_inputs
-    layer1_input = T.concatenate(x2_layer1_inputs, 1)
-    hidden_units[0] = feature_maps * (len(x2_filter_hs) + len(x1_filter_hs))
+    layer1_input = T.concatenate(x1_layer1_inputs, 1)
+    hidden_units[0] = feature_maps * ( len(x1_filter_hs))
   #  conv_layers = conv_layers1 + conv_layers2
     
     #TODO - instead of concat, try another function to combine the layers? 
@@ -163,9 +140,7 @@ def build_model(U,
     #layer1_input = x1_layer1_input * x2_layer1_input
     classifier = MLPDropout(rng, input=layer1_input, layer_sizes=hidden_units, activations=[activation], dropout_rates=[dropout_rate])
     
-    return x1, x2, y, Words, conv_layers1, conv_layers2, classifier
-
-
+    return x1, y, Words, conv_layers1, classifier
 
 def shared_dataset(data, borrow=True):
     """ Function that loads the dataset into shared variables
@@ -176,17 +151,14 @@ def shared_dataset(data, borrow=True):
     is needed (the default behaviour if the data is not in a shared
     variable) would lead to a large decrease in performance.
     """
-    data_x1, data_x2, data_y = data
+    data_x1, data_y = data
     shared_x1 = theano.shared(np.asarray(data_x1,
-                                               dtype='int32'),
-                                 borrow=borrow)
-    shared_x2 = theano.shared(np.asarray(data_x2,
                                                dtype='int32'),
                                  borrow=borrow)
     shared_y = theano.shared(np.asarray(data_y,
                                                dtype='int32'),
                                  borrow=borrow)
-    return shared_x1, shared_x2, shared_y
+    return shared_x1, shared_y
 
 ''''''
         
@@ -233,8 +205,6 @@ def as_floatX(variable):
         return np.cast[theano.config.floatX](variable)
     return theano.tensor.cast(variable, theano.config.floatX)
     
-
-
 def word_2_index(word, word_idx_map):
     if word in word_idx_map:
         return word_idx_map[word]
@@ -276,31 +246,27 @@ def index_x2(sent, word_idx_map, max_l=30, filter_h=3):
 sentence * words into matrix format transformation
 '''
 
-def make_idx_data(data, word_idx_map, max_x1,max_x2, x1_filter_h, x2_filter_h):
+def make_idx_data(data, word_idx_map, max_x1, x1_filter_h):
     """
     Transforms sentences into a 2-d matrix.
     """
     x1 = []
-    x2 = []
     y = []
     for d in data:
-        idx_x1 = index_x2(d["x1"], word_idx_map,max_x1, x1_filter_h)
-        idx_x2 = index_x2(d["x2"], word_idx_map, max_x2, x2_filter_h)
+        idx_x1 = index_x2(d["text"], word_idx_map,max_x1, x1_filter_h)
         x1.append(idx_x1)
-        x2.append(idx_x2)
         y.append(d['y'])
         
     x1_data = np.array(x1,dtype="int")
-    x2_data = np.array(x2,dtype="int")
     y_data = np.array(y,dtype="int")
-    return [x1_data, x2_data, y_data]
+    return [x1_data, y_data]
 
 
 def getTest2Sets(test_data,batch_size):
     
     n_batches = int(math.ceil(test_data[0].shape[0]/float(batch_size)))
     n_test_batches = int(np.round(n_batches*1.))
-
+    print 'n_batches: ', n_batches
   #  print 'n_train_batches: ', n_test_batches
     #for data in train_data:
     #    print data.shape 
@@ -314,18 +280,8 @@ def getTest2Sets(test_data,batch_size):
         test_set = new_set
     
     print 'test size =', len(test_set[0])
-    n_batches = int(math.ceil(len(test_set[0])/float(batch_size)))
-    n_test_batches = int(np.round(n_batches*1.))
-    print 'n_batches: ', n_batches
-    
-    minibatch_start = 0
-    minibatches = []
-    for i in range(len(test_set[0]) // batch_size):
-        minibatches.append((minibatch_start,minibatch_start+batch_size))
-        minibatch_start += batch_size
- 
 
-    return test_set,minibatches,n_test_batches
+    return test_set,n_test_batches
 
 
 def getTrainValSets(train_data,batch_size):
@@ -386,13 +342,14 @@ def getTestSet(test_data,batch_size,img_h1,img_h2):
         
     return test_data,minibatches
         
-def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
+def train_test(train_data,test_data,model_file,pred_file,U):
 
     hidden_units=[100,2]
     batch_size=1000
     img_w=100
     dropout_rate=0.5
                 
+    n_epochs=25
     lr_decay = 0.95
     conv_non_linear="relu"
     activation=Iden
@@ -402,18 +359,15 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
   #  print 'hello'
     shuffle_batch=True
     x1_filter_hs = [1,2,3]
-    x2_filter_hs = [1,2,3]
     batch_size = 25
     non_static = False
+    hidden_units = [100,2]
 
     img_h1 = len(train_data[0][0])
-    img_h2 = len(train_data[1][0])
     print train_data[0].shape
     print "img_h1=" + str(img_h1)
-    print "img_h2=" + str(img_h2)
     
     x1 = T.imatrix('x1')
-    x2 = T.imatrix('x2')
     y = T.ivector('y')
     
     Words = theano.shared(value = U, name = "Words")
@@ -421,13 +375,11 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
     zero_vec = np.zeros(img_w)
     set_zero = theano.function([zero_vec_tensor], updates=[(Words, T.set_subtensor(Words[0,:], zero_vec_tensor))], allow_input_downcast=True)
 
-    x1, x2, y, Words, conv_layers_1, conv_layers_2, classifier = build_model(
+    x1, y, Words, conv_layers_1, classifier = build_model(
                 U,
                 img_h1,
-                img_h2,
                 img_w=img_w, 
                 x1_filter_hs=x1_filter_hs,
-                x2_filter_hs=x2_filter_hs,
                 hidden_units=hidden_units, 
                 dropout_rate=dropout_rate,
                 batch_size=batch_size, 
@@ -440,8 +392,6 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
          #define parameters of the model and update functions using adadelta
     params = classifier.params
     for conv_layer in conv_layers_1:
-        params += conv_layer.params
-    for conv_layer in conv_layers_2:
         params += conv_layer.params
         
     if non_static:
@@ -466,24 +416,22 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
     train_set,val_set = getTrainValSets(train_data,batch_size)
   #  test_set,minibatches = getTestSet(test_data,batch_size,img_h1,img_h2)
     
-    test_set,minibatches,n_test_batches = getTest2Sets(test_data,batch_size)
+    test_set,n_test_batches = getTest2Sets(test_data,batch_size)
 
-    train_set_x1, train_set_x2, train_set_y = shared_dataset(train_set)
-    val_set_x1, val_set_x2, val_set_y = shared_dataset(val_set)    
-    test_set_shared_x1, test_set_shared_x2, test_set_shared_y = shared_dataset(test_set)
-    test_set_x1, test_set_x2, test_set_y = test_set
+    train_set_x1, train_set_y = shared_dataset(train_set)
+    val_set_x1, val_set_y = shared_dataset(val_set)    
+    test_set_shared_x1, test_set_shared_y = shared_dataset(test_set)
+    test_set_x1, test_set_y = test_set
    
     n_val_batches = n_batches - n_train_batches
     val_model = theano.function([index], classifier.errors(y),
                                 givens={
                                         x1: val_set_x1[index * batch_size: (index + 1) * batch_size],
-                                        x2: val_set_x2[index * batch_size: (index + 1) * batch_size],
                                         y: val_set_y[index * batch_size: (index + 1) * batch_size]})
 
     train_model = theano.function([index], cost, updates=grad_updates,
                                   givens={
                                           x1: train_set_x1[index * batch_size: (index + 1) * batch_size],
-                                          x2: train_set_x2[index * batch_size: (index + 1) * batch_size],
                                           y: train_set_y[index * batch_size: (index + 1) * batch_size]})
     
 
@@ -494,21 +442,12 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
     test_model = theano.function([index], classifier.errors(y),
                                 givens={
                                         x1: test_set_shared_x1[index * batch_size: (index + 1) * batch_size],
-                                        x2: test_set_shared_x2[index * batch_size: (index + 1) * batch_size],
                                         y: test_set_shared_y[index * batch_size: (index + 1) * batch_size]})
 
-    test_result = theano.function([s_idx,e_idx], classifier.layers[-1].y_pred,
-                                givens={
-                                       x1: test_set_shared_x1[s_idx : e_idx],
-                                       x2: test_set_shared_x2[s_idx : e_idx]#,
-                                       })
- 
-    test_pred_layers = []
+
     test_pred_layers_x1 = []
-    test_pred_layers_x2 = []
 
     test_size = test_set_x1.shape[0]
-    test_size = test_set[0].shape[0]
   #  test_layer0_input = U[T.cast(x.flatten(),dtype="int32")].reshape((test_size,1,img_h,U.shape[1]))
   #  test_layer0_input = Words[T.cast(x.flatten(),dtype="int32")].reshape((test_size,1,img_h,Words.shape[1]))
 
@@ -516,21 +455,12 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
   #  test_layer0_input_x2 = Words[x2.flatten()].reshape((x2.shape[0],1,x2.shape[1],Words.shape[1]))
 
     test_layer0_input_x1 = Words[T.cast(x1.flatten(),dtype="int32")].reshape((test_size,1,img_h1,Words.shape[1]))
-    test_layer0_input_x2 = Words[T.cast(x2.flatten(),dtype="int32")].reshape((test_size,1,img_h2,Words.shape[1]))
-
-
     for i in xrange(len(conv_layers_1)):
         conv_layer_1 = conv_layers_1[i]
         test_layer0_output_x1 = conv_layer_1.predict(test_layer0_input_x1, test_size)
         test_pred_layers_x1.append(test_layer0_output_x1.flatten(2))
     
-    for i in xrange(len(conv_layers_2)):
-        conv_layer_2 = conv_layers_2[i]
-        test_layer0_output_x2 = conv_layer_2.predict(test_layer0_input_x2, test_size)
-        test_pred_layers_x2.append(test_layer0_output_x2.flatten(2))
-    
-    test_pred_layers_x2 += test_pred_layers_x1
-    test_layer1_input = T.concatenate(test_pred_layers_x2, 1)
+    test_layer1_input = T.concatenate(test_pred_layers_x1, 1)
     
     '''
     for i, conv_layer_1 in enumerate(conv_layers_1):
@@ -548,7 +478,7 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
     '''    
     test_y_pred = classifier.predict(test_layer1_input)
     test_error = T.mean(T.neq(test_y_pred, y))
-    test_model_all = theano.function([x1,x2,y], test_error, allow_input_downcast = True)   
+    test_model_all = theano.function([x1,y], test_error, allow_input_downcast = True)   
 
     print 'start training....'
     
@@ -556,6 +486,7 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
     best_val_perf = 0
     val_perf = 0
     cost_epoch = 0    
+    
     
     while (epoch < n_epochs):
         epoch = epoch + 1
@@ -580,11 +511,8 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
         if val_perf >= best_val_perf:
             best_val_perf = val_perf
             
-            test_losses = test_model_all(test_set_x1, test_set_x2, test_set_y)        
+            test_losses = test_model_all(test_set_x1, test_set_y)        
             test_perf = 1- test_losses
-            
-            test_preds = [test_result(minibatches[i][0], minibatches[i][1]) for i in xrange(len(minibatches))]
-
 
             ''' check the next two lines'''
 #            test_losses = [test_model(i) for i in xrange(n_test_batches)]
@@ -609,40 +537,24 @@ def train_test(train_data,test_data,model_file,pred_file,n_epochs,U):
             logger.error('test perf %f %%' % (test_perf * 100.))
 
     '''the following is for a control on measuring P/R/F1 (avg, SD) via external code'''
-    
-   # test_preds = [test_result(minibatches[i][0], minibatches[i][1]) for i in xrange(len(minibatches))]
-    all_preds = []
-    for pred in test_preds:
-        all_preds.extend(pred)
-        
-    precision, recall, fscore, support = score(test_set_y, all_preds)
-    print str(precision)
-    print str(recall)
-    print str(fscore)
-    print str(support)
-    
     '''
-    with open(pred_file, 'wb') as fout:
+    test_preds = [test_result(minibatches[i][0], minibatches[i][1]) for i in xrange(len(minibatches))]
+    with open(output_file, 'wb') as fout:
         for pred in test_preds:
             for p in pred:
                 fout.write(str(p) + '\n')
     '''
-    with open(pred_file, 'wb') as fout:
-        for index,pred in all_preds:
-            g = test_set_y[index]
-            fout.write(str(g) + '\t' + str(p) + '\n')
 
     
 def getTrainTestData(target,path):
 
-    path ='/Users/dg513/work/eclipse-workspace/compose-workspace/CompositionModels/data/output/samelm/pkl/2_cnn/'
+    path ='/Users/dg513/work/eclipse-workspace/compose-workspace/CompositionModels/data/output/wsd/pkl/1_cnn/'
     
-    train_file = path + 'tweet.' + target + '.word' + '.TRAIN' + '.pkl'
-    test_file =  path + 'tweet.' + target + '.word' + '.TEST' + '.pkl'
+    train_file = path + 'tweet.' + target + '.target.TRAIN' + '.pkl'
+    test_file =  path + 'tweet.' + target + '.target.TEST' + '.pkl'
     
     model_file = path + 'tweet.' + target + '.target.TRAIN' + '.model.pkl'
-    output_file = path + target + '.2cnn.pred'
-
+    output_file = path + target + '.1cnn.pred'
 
     batch_size = 25
     
@@ -655,7 +567,7 @@ def getTrainTestData(target,path):
     
 
     x = cPickle.load(open(train_file,"rb"))
-    train_data, W, word_idx_map, max_x1, max_x2 = x[0], x[1], x[2], x[3], x[4]
+    train_data, W, word_idx_map, max_x1 = x[0], x[1], x[2], x[3]
     print 'size=', len(W), len(W[0])
     img_w = len(W[0])
     print "data loaded!"
@@ -663,78 +575,18 @@ def getTrainTestData(target,path):
     
     test_data = cPickle.load(open(test_file,'rb'))
 
-    
     print "max x1 length = " + str(max_x1)
-    print "max x2 length = " + str(max_x2)
     
     x1_filter_hs = [1,2,3]
-    x2_filter_hs = [1,2,3]
-
+    
     '''this is coming from the original LENET'''
     execfile("./src/com/rutgers/cnn/conv_net_classes.py")
     
     '''this converts the training data in format for CNN'''
-    idx_train_data = make_idx_data(train_data, word_idx_map, max_x1, max_x2, max(x1_filter_hs), max(x2_filter_hs))
-    idx_test_data = make_idx_data(test_data, word_idx_map, max_x1, max_x2, max(x1_filter_hs), max(x2_filter_hs))
+    idx_train_data = make_idx_data(train_data, word_idx_map, max_x1, max(x1_filter_hs))
+    idx_test_data = make_idx_data(test_data, word_idx_map, max_x1, max(x1_filter_hs))
     
     return idx_train_data,idx_test_data,model_file,output_file,U
-
-
-def getTrainTestData_single(path):
-
-    
-    train_file = path + 'incongruence_cotext_training.word.pkl'
-    model_file = path + 'incongruence_cotext' + '.model.pkl'
-
-    test_file_1 =  path + 'marker_nonmarker_cotext_test.word.pkl'
-    output_file_1 = path  + 'marker.2cnn.pred'
-
-    test_file_2 =  path + 'sentiment_change_cotext_test.word.pkl'
-    output_file_2 = path  + 'sentiment.2cnn.pred'
-
-    test_file_3 =  path + 'incongruence_cotext_test.word.pkl'
-    output_file_3 = path  + 'incongruity.2cnn.pred'
-
-    batch_size = 25
-    
-    '''non_static parameter handles the static/dynamic nature of embedding. 
-        whether we need to learn task/specific embedding or not'''
-    non_static = True
-    
-    print "loading data...",
-    logger.error("loading data...");
-    
-
-    x = cPickle.load(open(train_file,"rb"))
-    train_data, W, word_idx_map, max_x1, max_x2 = x[0], x[1], x[2], x[3], x[4]
-    print 'size=', len(W), len(W[0])
-    img_w = len(W[0])
-    print "data loaded!"
-    U = W.astype(theano.config.floatX)
-    
-    test_data_1 = cPickle.load(open(test_file_1,'rb'))
-    test_data_2 = cPickle.load(open(test_file_2,'rb'))
-    test_data_3 = cPickle.load(open(test_file_3,'rb'))
-
-    print "max x1 length = " + str(max_x1)
-    print "max x2 length = " + str(max_x2)
-    
-    x1_filter_hs = [1,2,3]
-    x2_filter_hs = [1,2,3]
-
-    '''this is coming from the original LENET'''
-    execfile("conv_net_classes.py")
-    
-    '''this converts the training data in format for CNN'''
-    idx_train_data = make_idx_data(train_data, word_idx_map, max_x1, max_x2, max(x1_filter_hs), max(x2_filter_hs))
-    idx_test_data_1 = make_idx_data(test_data_1, word_idx_map, max_x1, max_x2, max(x1_filter_hs), max(x2_filter_hs))
-    idx_test_data_2 = make_idx_data(test_data_2, word_idx_map, max_x1, max_x2, max(x1_filter_hs), max(x2_filter_hs))
-    idx_test_data_3 = make_idx_data(test_data_3, word_idx_map, max_x1, max_x2, max(x1_filter_hs), max(x2_filter_hs))
-    
-    idx_test_data = [idx_test_data_1, idx_test_data_2,idx_test_data_3]
-    output_files = [output_file_1,output_file_2,output_file_3] 
-    
-    return idx_train_data,idx_test_data,model_file,output_files,U
 
 def listTargets():
     file = open('./data/config/targets.txt')
@@ -748,42 +600,6 @@ def listTargets():
 '''
 
 def main(args):
-
-    config_file = '../data/config/'+args[1].strip()
-    config = ConfigParser.ConfigParser()
-    config.read(config_file)
-
-    kwargs = {}
-    try:
-       header = 'CNN_HEADER'
-       kwargs['trainingPath'] = config.get(header, 'trainingPath')
-       kwargs['testPath'] = config.get(header, 'testPath')
-       kwargs['modelPath'] = config.get(header, 'modelPath')
-       kwargs['outputPath'] = config.get(header, 'outputPath')
-       kwargs['hidden'] = int(config.get(header, 'hidden'))
-       kwargs['testType'] = config.get(header, 'testType')
-       kwargs['trainType'] = config.get(header, 'trainType')
-    except:
-       print("check the parameters that you entered in the config file")
-       exit()
-
-    '''drop_outs,epsilons, epochs are fixed after running on the dev data'''
-    drop_outs = [0.5]
-    hidden_units = int(kwargs['hidden'])
-    hidden_dims = [hidden_units]
-    epsilons = [1e-5]
-    epochs = [40]
-    hidden = kwargs.get('hidden')
-
-    train_data,test_datasets,model_file,pred_files,U = getTrainTestData_single(kwargs)
-    
-    for index,test_data in enumerate(test_datasets):
-        pred_file = pred_files[index]
-        train_test(train_data,test_data,model_file,pred_file,U,epoch,hidden)
-
-    log_file.close()
-    
-def main_targets(args):
 
     path  = args[0]
     hidden_units = int(args[1])
@@ -801,7 +617,7 @@ def main_targets(args):
     epochs = [2]
 
     for target in targets:
-        print 'selected target is ' + target
+        'selected target is ' + target
 
         for drop_out in drop_outs:
                 for hidden_dim in hidden_dims:
@@ -809,7 +625,7 @@ def main_targets(args):
                                 for epoch in epochs:
                                     
                                     train_data,test_data,model_file,pred_file,U = getTrainTestData(target,path)
-                                    train_test(train_data,test_data,model_file,pred_file,epoch,U)
+                                    train_test(train_data,test_data,model_file,pred_file,U)
                                       #  test(params,target,path,hidden_dim,non_static=True,both=False)
 
 
